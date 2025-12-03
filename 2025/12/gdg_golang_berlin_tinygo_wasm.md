@@ -20,11 +20,11 @@ date: Dec 3, 2025
 .
 ├── WebAssembly
 │   ├── Overview
-│   └── A closer look
+│   └── Wasm Module
 ├── Standard Go + Wasm
-├── Beyond the Web
-│   ├── TinyGo
-│   └── TinyGo vs Go (standard)
+├── TinyGo
+│   ├── Overview
+│   └── Beyond the Web
 └── Demo
 ```
 
@@ -40,7 +40,12 @@ Role:   Staff Software Engineer @IONOS Cloud
 X:      @_gauravgahlot
 GitHub: @gauravgahlot
 Web:    https://gauravgahlot.in/
-OSS:    Akri, Tinkerbell, falcosidekick, fission ...
+OSS:
+  - Akri (maintainer, CNCF Sandbox)
+  - Tinkerbell (ex-maintainer, CNCF Sandbox)
+  - falcosidekick
+  - fission
+  ...
 ```
 
 ---
@@ -73,6 +78,7 @@ OSS:    Akri, Tinkerbell, falcosidekick, fission ...
 | **Polyglot**    | Supports a wide set of language       |
 | --------------- | ------------------------------------- |
 | **Portability** | Cross-platform and cross-architecture |
+| --------------- | ------------------------------------- |
 
 ---
 
@@ -114,7 +120,7 @@ OSS:    Akri, Tinkerbell, falcosidekick, fission ...
 
 ---
 
-## WebAssembly - A closer look
+## WebAssembly - Wasm Module
 
 📌Two representations
 
@@ -136,7 +142,7 @@ OSS:    Akri, Tinkerbell, falcosidekick, fission ...
 
 ---
 
-## WebAssembly - A closer look
+## WebAssembly - Wasm Module
 
 📌Two representations
 
@@ -163,7 +169,7 @@ OSS:    Akri, Tinkerbell, falcosidekick, fission ...
 
 ---
 
-## WebAssembly - A closer look
+## WebAssembly - Wasm Module
 
 ```
 
@@ -189,33 +195,74 @@ OSS:    Akri, Tinkerbell, falcosidekick, fission ...
 
 ---
 
+## Standard Go + Wasm
+
+📌In the browser
+
+```yaml
+- Supported: "Yes"
+- Uses: 'syscall/js' package
+- Build: GOOS=js GOARCH=wasm go build -o main.wasm
+```
+
+📌Outside the browser
+
+```yaml
+- Supported: "Yes"
+- Uses: WebAssembly System Interface (WASI)
+- Build: GOOS=wasip1 GOARCH=wasm go build -o main.wasm
+```
+
+---
+
+## Standard Go + Wasm
+
+📌In the browser
+
+```yaml
+- Supported: "Yes"
+- Uses: 'syscall/js' package
+- Build: GOOS=js GOARCH=wasm go build -o main.wasm
+```
+
+📌Outside the browser
+
+```yaml
+- Supported: "Yes"
+- Uses: WebAssembly System Interface (WASI)
+- Build: GOOS=wasip1 GOARCH=wasm go build -o main.wasm
+```
+
+📌Requirements
+
+```sh
+❌not building for the web
+❌don't need WASI support
+```
+
+---
+
 ## TinyGo
 
 - An LLVM based compiler for Go
+- Supports both - JS (browser), and WASI (server, edge)
+
+- Memory manager `-gc`:
+  - `none`: no memory management
+  - `leaking`: allcate; never free
+  - `conservative`: mark/sweep GC
+
+- Scheduling (concurrency) `-scheduler`:
+  - depends on platform
+  - `none`: no goroutines/channels
+  - `tasks`: similar to Go scheduler
+  - `asyncify`: used for WebAssembly
 
 ---
 
 ## Beyond the Web
 
-📌Requirements
-
-```sh
-❌not building for the web
-❌do not need the WASI support
-```
-
----
-
-## Beyond the Web
-
-📌Requirements
-
-```sh
-❌not building for the web
-❌do not need the WASI support
-```
-
-- Custom build configuration (`wasm-unknown.json`) for TinyGo:
+Custom build configuration (`wasm-unknown.json`) for TinyGo:
 
 ```json
 {
@@ -247,6 +294,7 @@ $ tinygo build -o compute.wasm -target=wasm-unknown -no-debug -opt=z code/comput
 | libc: none                            | The compiled code to handle all low-level calls directly or rely on host for imports      |
 | ------------------------------------- | -------------------------------------                                                     |
 | default-extldflags: ""                | Clear any default linker flags                                                            |
+| ------------------------------------- | -------------------------------------                                                     |
 
 ---
 
