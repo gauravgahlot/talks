@@ -1,5 +1,5 @@
 ---
-theme: /home/gaurav/workspace/others/gdg-berlin/gopher.json
+theme: gopher.json
 author: ""
 paging: "@IONOS Cloud"
 date: Mar 11, 2026
