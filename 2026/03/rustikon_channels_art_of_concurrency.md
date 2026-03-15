@@ -816,3 +816,11 @@ match token.run_until_cancelled(do_work()).await {
 ---
 
 # Thank you! 🦀
+
+📌Slides: https://gauravgahlot.in/talks/
+
+📌References:
+
+- 🎬 Crust of Rust (https://youtube.com/@jonhoo)
+- 📚 Rust Atomics and Locks
+- 📚 Rust for Rustaceans
