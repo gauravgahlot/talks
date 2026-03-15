@@ -1,7 +1,7 @@
 ---
 theme: ferris.json
 author: ""
-paging: Slide %d / %d
+paging: "@Rustikon"
 date: Mar 20, 2026
 ---
 
@@ -215,6 +215,11 @@ let result = rx.recv();
 ## Crossbeam
 
 📌 True multi-producer, multi-consumer
+
+```go
+let (tx, rx) = std::sync::mpsc::channel::<PodEvent>();
+let rx2 = rx.clone(); // ❌ COMPILE ERROR — Receiver<T>: !Clone
+```
 
 ```go
 use crossbeam_channel::bounded;
