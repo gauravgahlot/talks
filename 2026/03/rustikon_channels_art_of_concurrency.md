@@ -219,7 +219,7 @@ let result = rx.recv();
 ```go
 use crossbeam_channel::bounded;
 
-let (tx, rx) = bounded::<DeviceEvent>(64);
+let (tx, rx) = bounded::<PodEvent>(64);
 
 for _ in 0..worker_count {
     let rx = rx.clone(); // ✅ crossbeam Receiver is Clone
@@ -436,7 +436,7 @@ tx.send(node_event)?;
 
 📌 `tokio::sync::broadcast` silently drops messages when the buffer is full.
 
-```rust
+```go
 let (tx, _) = broadcast::channel::<NodeEvent>(10);
 ```
 
@@ -454,7 +454,7 @@ match node_event_rx.recv().await {
 }
 ```
 
-📌 If 11 node events arrive before any controller wakes up — the 11th is silently dropped.
+📌 If 11 node events arrive before any controller wakes up — the oldest is silently overwritten. Receivers see `Lagged(1)`.
 
 ---
 
@@ -567,12 +567,12 @@ watch:                           [msg4] ← always the latest, nothing else
 
 ```
 
-| Channel     | Use case                                                            |
-| ----------- | ------------------------------------------------------------------- |
-| `broadcast` | Every event matters (node events, config changes)                   |
-| ----------- | --------------------------                                          |
-| `watch`     | Only current state matters (device list, health flag, drain signal) |
-| ----------- | --------------------------                                          |
+| Channel     | Use case                                                                |
+| ----------- | ----------------------------------------------------------------------- |
+| `broadcast` | Every event matters (node events, config changes)                       |
+| ----------- | --------------------------                                              |
+| `watch`     | Only current state matters (node conditions, health flag, drain signal) |
+| ----------- | --------------------------                                              |
 
 ---
 
@@ -619,7 +619,7 @@ loop {
 ```
 
 ```go
-let (tx, mut rx) = mpsc::channel::<ReconcileEvent>(16);
+let (tx, mut rx) = mpsc::channel::<ReconcileEvent>(10);
 
 // Every time you choose a strategy, you are making a statement about
 // what your system values when it is under pressure.
@@ -631,7 +631,7 @@ let (tx, mut rx) = mpsc::channel::<ReconcileEvent>(16);
 
 📌 Events must not be lost
 
-```rust
+```go
 // Producer pauses until there is space.
 // Backpressure propagates up the call chain.
 tx.send(event).await?;
@@ -674,7 +674,7 @@ Sampling every 10th event is better than OOMing on all of them.
 📌 SLA-bound systems
 
 ```go
-use tokio::time::Duration;
+use std::time::Duration;
 
 match tx.send_timeout(event, Duration::from_millis(100)).await {
     Ok(())                            => {}
@@ -711,8 +711,8 @@ Events older than N milliseconds are no longer useful — better to drop than de
 ```
 
 ```go
-let (tx, rx) = mpsc::channel::<Event>(10);
-//                                     ^^
+let (tx, rx) = mpsc::channel::<ReconcileEvent>(10);
+//                                              ^^
 // 10 pending events
 // each event takes ~50ms to process
 // burst capacity: 10 × 50ms = 500ms
@@ -817,9 +817,9 @@ match token.run_until_cancelled(do_work()).await {
 
 # Thank you! 🦀
 
-📌Slides: https://gauravgahlot.in/talks/
+📌 Slides: https://gauravgahlot.in/talks/
 
-📌References:
+📌 References:
 
 - 🎬 Crust of Rust (https://youtube.com/@jonhoo)
 - 📚 Rust Atomics and Locks
