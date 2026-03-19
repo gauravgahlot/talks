@@ -15,33 +15,18 @@ date: Mar 20, 2026
 
 ```yaml
 Name:   Gaurav Gahlot
-Role:   Staff Software Engineer at IONOS Cloud
+Role:   Software Engineer, IONOS Cloud
 X:      _gauravgahlot
 Web:    https://gauravgahlot.in/
 GitHub: gauravgahlot
 OSS:
   - Akri (maintainer, CNCF Sandbox)
+  - kube-dra (WIP)
   - Tinkerbell (ex-maintainer, CNCF Sandbox)
-  - kube-rs
   - falcosidekick
   - fission
   ...
 ```
-
----
-
-## The Cloud Native World
-
-The cloud native ecosystem runs on Go:
-
-```
-Docker     → Go
-Kubernetes → Go
-Tooling    → Go
-...
-```
-
-But slowly, Rust is gaining momentum.
 
 ---
 
@@ -59,33 +44,6 @@ But slowly, Rust is gaining momentum.
 - Multiple events arrive concurrently from across the cluster
 - Reconciliation must be reliable — missed events mean drift
 - Written in Rust: ownership makes the concurrency model explicit
-
----
-
-## Data Sharing
-
-📌 Why not just share data between threads?
-
-You can. A `Mutex` works. But:
-
-- Every reader/writer must coordinate
-- Lock contention under load
-- Compiler gives you nothing — burden is on you
-
----
-
-## Channels — Ownership Transfer
-
-📌 Channels transfer ownership — the compiler enforces it
-
-```go
-let (tx, rx) = std::sync::mpsc::channel();
-
-let msg = String::from("hello");
-tx.send(msg).unwrap();
-
-println!("{msg}"); // ❌ compile error: msg was moved
-```
 
 ---
 
@@ -108,9 +66,22 @@ Channels are the right mental model here.
 
 ---
 
-## The Standard Library
+## Channels — Ownership Transfer
 
-📌 Asynchronous channels:
+📌 Channels transfer ownership — the compiler enforces it
+
+```go
+let (tx, rx) = std::sync::mpsc::channel();
+
+let msg = String::from("hello");
+tx.send(msg).unwrap();
+
+println!("{msg}"); // ❌ compile error: msg was moved
+```
+
+---
+
+## The Standard Library
 
 ```go
 use std::sync::mpsc;
@@ -126,8 +97,6 @@ tx.send(msg).unwrap();
 ---
 
 ## The Standard Library
-
-📌 Synchronous channels:
 
 ```go
 use std::sync::mpsc;
@@ -154,7 +123,9 @@ let result = tx.send("hello".to_string());
 //                        ^^^^^^^ you get your value back
 ```
 
-`SendError<T>` returns the unsent value — you decide what to do with it.
+- `SendError<T>` returns the unsent value — you decide what to do with it.
+- `TrySendError::Disconnected<T>` - receiver is gone.
+- `TrySendError::Full<T>` - buffer is full.
 
 ```
 
@@ -170,43 +141,12 @@ let result = rx.recv();
 
 ---
 
-## The Standard Library
-
-|                   | Unbounded      | Bounded (`n`)                   |
-| ----------------- | -------------- | ------------------------------- |
-| Sender type       | `Sender<T>`    | `SyncSender<T>`                 |
-| ----------------- | -------------- | ------------------------------- |
-| `Sender: Sync`    | ❌             | ✅                              |
-| ----------------- | -------------- | ------------------------------- |
-| `send()` blocks?  | Never          | Yes, when full                  |
-| ----------------- | -------------- | ------------------------------- |
-| `try_send()`      | ❌             | ✅                              |
-| ----------------- | -------------- | ------------------------------- |
-| Buffer full error | N/A            | `TrySendError::Full(t)`         |
-| ----------------- | -------------- | ------------------------------- |
-| Receiver gone     | `SendError(t)` | `TrySendError::Disconnected(t)` |
-| ----------------- | -------------- | ------------------------------- |
-| Backpressure      | ❌             | ✅                              |
-| ----------------- | -------------- | ------------------------------- |
-
----
-
-## The Standard Library
-
-📌 What if you need multiple workers competing for the same work queue?
-
-`std::sync::mpsc` _cannot_ do that.
-
----
-
-## Scenario: Pod Events Across Namespaces
+## Scenario: Events at Scale
 
 ```
 ~~~graph-easy
-  [namespace: dev] - pod event -> [event queue]
-  [namespace: staging] - pod event -> [event queue]
-  [namespace: prod] - pod event -> [event queue]
-  [event queue] - process -> [1 worker: falling behind ⚠]
+[Deployment: 0 → 500] - 500 events -> [event queue ⚠]
+[event queue ⚠] - process -> [1 Worker: falling behind]
 ~~~
 ```
 
@@ -238,30 +178,7 @@ for _ in 0..worker_count {
 
 📌 Each event goes to exactly one worker — no duplication, no mutex
 
----
-
-## Crossbeam: Bounded vs Unbounded
-
-```go
-let (tx, rx) = crossbeam_channel::bounded(64);  // backpressure
-let (tx, rx) = crossbeam_channel::unbounded();  // grows forever
-```
-
-```go
-match tx.send(event) {
-    Ok(())            => {}
-    Err(SendError(v)) => eprintln!("dropped: {v:?}"), // all receivers gone
-}
-
-match rx.recv() {
-    Ok(event)      => process(event),
-    Err(RecvError) => break, // all senders dropped, channel drained
-}
-```
-
 📌 Both `std::sync::mpsc` and `crossbeam` block the OS thread
-
-In an async application — that is not acceptable.
 
 ---
 
@@ -529,24 +446,6 @@ loop {
 
 ---
 
-## select! vs Fan-in
-
-|                          | Fan-in             | `tokio::select!`                 |
-| ------------------------ | ------------------ | -------------------------------- |
-| Sources                  | Many, same type    | Many, different types            |
-| ------------------------ | ------------------ | -------------------------------- |
-| Every message processed? | ✅ Queued in order | ❌ Only the first-ready wins     |
-| ------------------------ | ------------------ | -------------------------------- |
-| Use when                 | Aggregating work   | Reacting to heterogeneous events |
-| ------------------------ | ------------------ | -------------------------------- |
-
-📌 The controller needs both:
-
-- fan-in for the reconcile queue
-- `select!` to also watch node events and shutdown while draining it
-
----
-
 ## Scenario: Node Conditions
 
 ```
@@ -770,30 +669,6 @@ parent.cancel();
 ```
 
 📌 `CancellationToken` is the modern answer to coordinated task shutdown in Kubernetes controllers
-
----
-
-## Ergonomic Helpers
-
-```go
-let token = tokio_util::sync::CancellationToken::new();
-
-// run_until_cancelled — cleaner than select! for simple cases:
-match token.run_until_cancelled(do_work()).await {
-    Some(result) => { /* work completed */ }
-    None         => { /* token was cancelled */ }
-}
-
-// drop_guard — automatic cancellation on scope exit:
-// token fires when the scope exits, even on early return or panic
-{
-    let _guard = token.clone().drop_guard();
-    do_work().await; // if this panics or returns early, token cancels
-}
-// _guard dropped here → token.cancel() called automatically
-```
-
-📌 `drop_guard` ties cancellation to scope lifetime — no extra bookkeeping needed
 
 ---
 
