@@ -230,7 +230,9 @@ async fn producer(tx: mpsc::Sender<Event>) {
 // Consumer
 async fn consumer(mut rx: mpsc::Receiver<Event>) {
     while let Some(event) = rx.recv().await {
-        process(event).await;
+        tokio::spawn(async move {       // spawn per event
+            process(event).await;       // work happens here
+        });
     }
     // None — all senders dropped and buffer drained
 }
@@ -281,12 +283,12 @@ let status = rx.await.unwrap(); // await the Receiver directly
 
 ---
 
-## Scenario: Configuration Reconcile Triggers
+## Scenario: Reconciliation Triggers
 
 ```
 ~~~graph-easy
 [Pod watcher] - resource changed -> [Reconciler]
-[Deployment watcher] - resource changed -> [Reconciler]
+[Secret watcher] - resource changed -> [Reconciler]
 [ConfigMap watcher] - resource changed -> [Reconciler]
 ~~~
 ```
@@ -301,18 +303,18 @@ let status = rx.await.unwrap(); // await the Receiver directly
 
 ```
 Pod watcher        ──► tx.clone() ──┐
-Deployment watcher ──► tx.clone() ──┼──► rx (Reconciler)
+Secret watcher     ──► tx.clone() ──┼──► rx (Reconciler)
 ConfigMap watcher  ──► tx.clone() ──┘
 ```
 
 ```go
 let tx_pod        = tx.clone();
-let tx_deployment = tx.clone();
+let tx_secret     = tx.clone();
 let tx_configmap  = tx.clone();
 
 // each watcher sends when resources change — reconciler processes all triggers
-while let Some(config_ref) = rx.recv().await {
-    reconcile(config_ref).await;
+while let Some(obj) = rx.recv().await {
+    reconcile(obj).await;
 }
 ```
 
@@ -344,9 +346,9 @@ use tokio::sync::broadcast;
 
 let (tx, _) = broadcast::channel::<NodeEvent>(16);
 
-let mut rx1 = tx.subscribe(); // Pod Eviction Controller
-let mut rx2 = tx.subscribe(); // Endpoint Controller
-let mut rx3 = tx.subscribe(); // NodeLifecycle Controller
+let mut rx_pod = tx.subscribe();       // Pod Eviction Controller
+let mut rx_endpoint = tx.subscribe();  // Endpoint Controller
+let mut rx_node = tx.subscribe();      // NodeLifecycle Controller
 
 // node goes NotReady — every controller receives it
 tx.send(node_event)?;
@@ -695,12 +697,24 @@ parent.cancel();
 
 ---
 
+# Call for Contributors! 🦀
+
+🖥️ Akri (https://github.com/project-akri/akri)
+
+🖥️ kube-dra (https://github.com/nubicle/kube-dra)
+
+🖥️ kube-dra-example-driver (https://github.com/nubicle/kube-dra-example-driver)
+
+---
+
 # Thank you! 🦀
 
 📌 Slides: https://gauravgahlot.in/talks/
 
-📌 References:
+🖥️ Akri (https://docs.akri.sh/)
 
-- 🎬 Crust of Rust (https://youtube.com/@jonhoo)
-- 📚 Rust Atomics and Locks
-- 📚 Rust for Rustaceans
+🖥️ kube-rs (https://kube.rs)
+
+🎬 Crust of Rust (https://youtube.com/@jonhoo)
+
+📚 Rust Atomics and Locks
