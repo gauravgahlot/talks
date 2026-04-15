@@ -151,30 +151,25 @@ type Mutex struct {
 
 Four pieces of information in 32 bits:
 
-- **Locked** — is someone holding the lock?
-- **Woken** — has a waiting goroutine been woken up?
-- **Starvation** — is the mutex in starvation mode?
-- **Waiter Count** — how many goroutines are waiting?
+- **Locked** — someone holds the lock
+- **Woken** — a goroutine is spinning; tells Unlock not to wake a sleeper
+- **Starvation** — mutex switched to fair, FIFO handoff mode
+- **Waiter Count** — number of goroutines parked in the semaphore queue
 
 ---
 
 ## The Semaphore — sema
 
-`sema` is not a counter. It's an **address**.
-
-The runtime maintains a global hash table of wait queues — one per unique address.
+`sema` is not a counter. It's an **address** — a wait queue key.
 
 ```
-Lock() fails to acquire
-  → runtime_SemacquireMutex(&m.sema) → goroutine parks in queue[&m.sema]
-
-Unlock() wants to wake a waiter
-  → runtime_Semrelease(&m.sema)      → head of queue[&m.sema] wakes up
+Lock() fails    →  park in queue[&m.sema]
+Unlock()        →  wake head of queue[&m.sema]
 ```
 
-📌 Every `sync.Mutex` has its own queue — keyed by the address of its `sema` field.
+📌 Every mutex has its own queue — keyed by the address of its `sema` field.
 
-📌 Parking and waking happen entirely in the Go runtime — no OS calls needed.
+📌 Parking and waking happen in the Go runtime — no OS calls.
 
 ---
 
@@ -205,7 +200,9 @@ In normal mode, a **new arrival can jump the queue**.
 ~~~
 ```
 
-📌 This is intentional. C is already running, B needs to be woken up and rescheduled. Letting C barge in is faster for overall throughput.
+📌 This is intentional. C is already running, B needs to be woken up and rescheduled.
+
+📌 Letting C barge in is faster for overall throughput.
 
 ---
 
@@ -214,7 +211,9 @@ In normal mode, a **new arrival can jump the queue**.
 ```go
 func BenchmarkMutexContended(b *testing.B) {
     var mu sync.Mutex
+
     b.RunParallel(func(pb *testing.PB) {
+
         for pb.Next() {
             mu.Lock()
             mu.Unlock()
@@ -255,25 +254,6 @@ As cores increase, contention increases. But there's more to the story.
 
 - Spinning makes sense — the holder might be running on another core
 - But more cores = more goroutines arriving at the lock simultaneously
-
----
-
-## Spinning — A Closer Look
-
-Spinning only happens when:
-
-- ✅ GOMAXPROCS > 1 (multi-core)
-- ✅ The mutex is in normal mode
-- ✅ There are waiting goroutines
-- ✅ A limited number of iterations (~4 spins)
-
-```
-
-```
-
-📌 On a single core, spinning is disabled entirely.
-
-📌 Each spin calls `runtime_doSpin()` — 30 PAUSE instructions on x86.
 
 ---
 
@@ -359,12 +339,15 @@ The mutex flips back to normal mode to regain throughput.
 ```go
 func BenchmarkMutexStarvation(b *testing.B) {
     var mu sync.Mutex
+
     b.RunParallel(func(pb *testing.PB) {
+
         for pb.Next() {
             mu.Lock()
             time.Sleep(time.Microsecond) // hold the lock longer
             mu.Unlock()
         }
+
     })
 }
 ```
@@ -389,7 +372,7 @@ GOMAXPROCS=12  BenchmarkMutexStarvation    ~22,200 ns/op
 
 ---
 
-## The Two Faces — Side by Side
+## The Two Faces — What to Take Away
 
 |                | Normal Mode      | Starvation Mode |
 | -------------- | ---------------- | --------------- |
@@ -399,34 +382,13 @@ GOMAXPROCS=12  BenchmarkMutexStarvation    ~22,200 ns/op
 | **Handoff**    | Unlocked state   | Direct transfer |
 | **Trigger**    | Default          | Waiter > 1ms    |
 
----
-
-## Cores vs Goroutines — The Full Picture
-
-```
-            1 core      4 cores     12 cores
-1 gor       ~14 ns      ~14 ns      ~14 ns       (uncontended)
-4 gor         —         ~40 ns        —          (contended)
-12 gor      ~13 ns        —         ~153 ns      (contended)
 ```
 
 ```
 
-```
+📌 One mutex. One int32. One bit flips the entire behavior.
 
-📌 1 goroutine is always fast — no contention.
-
-📌 More cores ≠ more speed under a single mutex. More cores = more contenders.
-
----
-
-## What to Take Away
-
-1. **Uncontended mutexes are fast** — a single CAS, ~14 ns
-2. **Contention is the cost** — not the mutex itself
-3. **Go's mutex self-tunes** — normal mode for speed, starvation mode for fairness
-4. **Cores amplify contention** — more parallelism hitting one lock means more waiting
-5. **Spinning is smart but limited** — only multi-core, only a few iterations
+📌 The mutex self-tunes — normal mode for speed, starvation mode for fairness.
 
 ---
 
@@ -450,7 +412,7 @@ But now you know what happens when you do share memory. 🙂
 
 ```yaml
 Gaurav Gahlot
-X:      _gauravgahlot
-Web:    https://gauravgahlot.in/
+
+Slides: https://gauravgahlot.in/talks
 GitHub: gauravgahlot
 ```
