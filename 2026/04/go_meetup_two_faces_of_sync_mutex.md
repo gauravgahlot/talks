@@ -1,6 +1,6 @@
 ---
 author: ""
-paging: "@Go Meetup Berlin"
+paging: "@GDG Golang, Berlin"
 date: Apr 15, 2026
 ---
 
@@ -90,7 +90,7 @@ func BenchmarkMutexUncontended(b *testing.B) {
 ## Uncontended — Results
 
 ```
-BenchmarkMutexUncontended-12    ~5 ns/op
+BenchmarkMutexUncontended-12    ~14 ns/op
 ```
 
 ```
@@ -100,6 +100,25 @@ BenchmarkMutexUncontended-12    ~5 ns/op
 That's an atomic compare-and-swap. Fast path — no parking, no scheduling.
 
 When nobody else wants the lock, the cost is almost free.
+
+---
+
+## The Fast Path
+
+```go
+func (m *Mutex) Lock() {
+    // Fast path: grab uncontested lock
+    if atomic.CompareAndSwapInt32(&m.state, 0, mutexLocked) {
+        return
+    }
+    // Slow path...
+    m.lockSlow()
+}
+```
+
+📌 If `state == 0` (nobody holds it, nobody waiting), flip the locked bit and return.
+
+📌 One atomic CAS. That's your ~14 ns.
 
 ---
 
@@ -139,26 +158,27 @@ Four pieces of information in 32 bits:
 
 ---
 
-## The Fast Path
+## The Semaphore — sema
 
-```go
-func (m *Mutex) Lock() {
-    // Fast path: grab uncontested lock
-    if atomic.CompareAndSwapInt32(&m.state, 0, mutexLocked) {
-        return
-    }
-    // Slow path...
-    m.lockSlow()
-}
+`sema` is not a counter. It's an **address**.
+
+The runtime maintains a global hash table of wait queues — one per unique address.
+
+```
+Lock() fails to acquire
+  → runtime_SemacquireMutex(&m.sema) → goroutine parks in queue[&m.sema]
+
+Unlock() wants to wake a waiter
+  → runtime_Semrelease(&m.sema)      → head of queue[&m.sema] wakes up
 ```
 
-📌 If `state == 0` (nobody holds it, nobody waiting), flip the locked bit and return.
+📌 Every `sync.Mutex` has its own queue — keyed by the address of its `sema` field.
 
-📌 One atomic CAS. That's your ~5 ns.
+📌 Parking and waking happen entirely in the Go runtime — no OS calls needed.
 
 ---
 
-## The Slow Path — Normal Mode
+## Face #1 — Fast but Unfair (Normal Mode)
 
 When `Lock()` finds the mutex already held:
 
@@ -178,13 +198,11 @@ But here's the catch: when the lock is released, who gets it?
 In normal mode, a **new arrival can jump the queue**.
 
 ```
-Goroutine A: holding the lock
-Goroutine B: parked, waiting (has been waiting 500µs)
-Goroutine C: just called Lock(), spinning
-
-→ A calls Unlock()
-→ C grabs the lock (it's already on the CPU!)
-→ B stays parked
+~~~graph-easy
+[ A: holds lock ] - Unlock() -> [ Lock: free ]
+[ C: spinning on CPU ] - CAS wins -> [ Lock: free ]
+[ B: parked 500µs ] - stays parked -> [ Wait Queue ]
+~~~
 ```
 
 📌 This is intentional. C is already running, B needs to be woken up and rescheduled. Letting C barge in is faster for overall throughput.
@@ -212,9 +230,9 @@ func BenchmarkMutexContended(b *testing.B) {
 ## Contended — Results
 
 ```
-GOMAXPROCS=1   BenchmarkMutexContended    ~X ns/op
-GOMAXPROCS=4   BenchmarkMutexContended    ~Y ns/op
-GOMAXPROCS=12  BenchmarkMutexContended    ~Z ns/op
+GOMAXPROCS=1   BenchmarkMutexContended    ~13 ns/op
+GOMAXPROCS=4   BenchmarkMutexContended    ~40 ns/op
+GOMAXPROCS=12  BenchmarkMutexContended    ~153 ns/op
 ```
 
 ```
@@ -240,6 +258,25 @@ As cores increase, contention increases. But there's more to the story.
 
 ---
 
+## Spinning — A Closer Look
+
+Spinning only happens when:
+
+- ✅ GOMAXPROCS > 1 (multi-core)
+- ✅ The mutex is in normal mode
+- ✅ There are waiting goroutines
+- ✅ A limited number of iterations (~4 spins)
+
+```
+
+```
+
+📌 On a single core, spinning is disabled entirely.
+
+📌 Each spin calls `runtime_doSpin()` — 30 PAUSE instructions on x86.
+
+---
+
 ## The Fairness Problem
 
 Barging is great for throughput. But what about Goroutine B?
@@ -256,7 +293,7 @@ B has been waiting...
 
 ---
 
-## Face #2 — Starvation Mode
+## Face #2 — Fair but Slower (Starvation Mode)
 
 If a goroutine has been waiting for more than **1 millisecond**, the mutex switches modes.
 
@@ -279,16 +316,19 @@ The rules change completely:
 
 ## The Handoff
 
-Normal mode:
+```
+~~~graph-easy
+[ Normal: Unlock() ] - state = 0 (free) -> [ Race! ]
+[ C: spinning ] - CAS wins -> [ Race! ]
+[ B: parked ] - still waiting -> [ Race! ]
+~~~
+```
 
 ```
-Unlock() → set state to unlocked → someone grabs it (whoever is fastest)
-```
-
-Starvation mode:
-
-```
-Unlock() → hand the lock directly to the first waiter (no unlocked state)
+~~~graph-easy
+[ Starvation: Unlock() ] - direct handoff -> [ B: head of queue ]
+[ C: new arrival ] - goes to back -> [ Wait Queue ]
+~~~
 ```
 
 📌 The lock is never "free" in starvation mode. It passes hand-to-hand.
@@ -333,6 +373,22 @@ func BenchmarkMutexStarvation(b *testing.B) {
 
 ---
 
+## Starvation — Results
+
+```
+GOMAXPROCS=12  BenchmarkMutexStarvation    ~22,200 ns/op
+```
+
+```
+
+```
+
+~145× slower than contended. Every handoff pays the wake-up cost.
+
+📌 Lower throughput. But no goroutine waits indefinitely.
+
+---
+
 ## The Two Faces — Side by Side
 
 |                | Normal Mode      | Starvation Mode |
@@ -345,32 +401,13 @@ func BenchmarkMutexStarvation(b *testing.B) {
 
 ---
 
-## Spinning — A Closer Look
-
-Spinning only happens when:
-
-- ✅ GOMAXPROCS > 1 (multi-core)
-- ✅ The mutex is in normal mode
-- ✅ There are waiting goroutines
-- ✅ A limited number of iterations (~4 spins)
-
-```
-
-```
-
-📌 On a single core, spinning is disabled entirely.
-
-📌 Each spin calls `runtime_doSpin()` — 30 PAUSE instructions on x86.
-
----
-
 ## Cores vs Goroutines — The Full Picture
 
 ```
             1 core      4 cores     12 cores
-1 gor       ~5 ns       ~5 ns       ~5 ns        (uncontended)
-4 gor       ~X ns       ~Y ns       ~Z ns        (contended)
-12 gor      ~X ns       ~Y ns       ~Z ns        (contended)
+1 gor       ~14 ns      ~14 ns      ~14 ns       (uncontended)
+4 gor         —         ~40 ns        —          (contended)
+12 gor      ~13 ns        —         ~153 ns      (contended)
 ```
 
 ```
@@ -385,7 +422,7 @@ Spinning only happens when:
 
 ## What to Take Away
 
-1. **Uncontended mutexes are fast** — a single CAS, ~5 ns
+1. **Uncontended mutexes are fast** — a single CAS, ~14 ns
 2. **Contention is the cost** — not the mutex itself
 3. **Go's mutex self-tunes** — normal mode for speed, starvation mode for fairness
 4. **Cores amplify contention** — more parallelism hitting one lock means more waiting
