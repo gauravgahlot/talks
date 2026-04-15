@@ -304,6 +304,14 @@ The rules change completely:
 ~~~
 ```
 
+📌 The mutex is now unlocked.
+
+📌 Any goroutine — a spinner, a newly arrived goroutine, a woken waiter — can race to grab it.
+
+---
+
+## The Handoff
+
 ```
 ~~~graph-easy
 [ Starvation: Unlock() ] - direct handoff -> [ B: head of queue ]
@@ -411,8 +419,5 @@ But now you know what happens when you do share memory. 🙂
 # Thank you!
 
 ```yaml
-Gaurav Gahlot
-
 Slides: https://gauravgahlot.in/talks
-GitHub: gauravgahlot
 ```
