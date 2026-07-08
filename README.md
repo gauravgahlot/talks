@@ -8,7 +8,7 @@ The repository contains slides, demos and anything else I ever used for any of m
 
 | Date   | Event                                            | Talk                                                                                                                  |
 | ------ | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
-| Jul 8  | WeAreDevelopers World Congress Europe, Berlin    | From Bytes to Execution: Writing a WebAssembly Runtime in Rust _(upcoming)_                                           |
+| Jul 9  | WeAreDevelopers World Congress Europe, Berlin    | [From Bytes to Execution: Writing a WebAssembly Runtime in Rust](./2026/07/whisk.md) _(upcoming)_                     |
 | Apr 30 | Rust Berlin                                      | [Rust meets Kubernetes](./2026/04/rust_meetup_rust_meets_k8s.md)                                                      |
 | Apr 15 | GDG Golang, Berlin                               | [The Two Faces of `sync.Mutex`](./2026/04/go_meetup_two_faces_of_sync_mutex.md)                                       |
 | Mar 20 | Rustikon, Warsaw (Poland)                        | [Channels in Rust: The Art of Concurrency](./2026/03/rustikon_channels_art_of_concurrency.md)                         |
